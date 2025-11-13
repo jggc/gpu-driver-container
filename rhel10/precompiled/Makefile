@@ -1,4 +1,5 @@
-RHEL_VERSION ?= 9.4
+# RHEL_VERSION is set to 10.0 to match the target OS version ID.
+RHEL_VERSION ?= 10.0
 RHEL_VERSION_MAJOR = $(shell echo "${RHEL_VERSION}" | awk -F. '{print $$1}')
 
 KERNEL_VERSION ?= ''
@@ -9,7 +10,9 @@ KERNEL_VERSION_NOARCH=$(shell echo "${KERNEL_VERSION}" | sed "s/\.${TARGET_ARCH}
 KERNEL_VERSION_TAG = $(shell echo "${KERNEL_VERSION_NOARCH}.${BUILD_ARCH}" | sed "s/+/_/")
 BASE_URL ?= https://us.download.nvidia.com/tesla
 
-CUDA_VERSION ?= 12.8.1
+# CUDA_VERSION is updated to a version compatible with RHEL 10 and the 580 driver series.
+CUDA_VERSION ?= 13.0.2
+# CUDA_DIST will automatically become 'ubi10' based on RHEL_VERSION_MAJOR.
 CUDA_DIST = ubi${RHEL_VERSION_MAJOR}
 
 DRIVER_VERSION ?= ''
@@ -78,4 +81,3 @@ image-push:
 	@echo "!=== Pushing image ===!"
 	${CONTAINER_TOOL} push \
 		${IMAGE_REGISTRY}/${IMAGE_NAME}:${DRIVER_VERSION}-${KERNEL_VERSION_TAG}-${OS_TAG}
-

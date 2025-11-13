@@ -1,7 +1,9 @@
+# ARGUMENTS FOR THE BUILDER STAGE
 ARG DRIVER_TOOLKIT_IMAGE
 ARG CUDA_VERSION
 ARG CUDA_DIST
 
+# STAGE 1: Build the kernel module (kmod) RPM
 FROM ${DRIVER_TOOLKIT_IMAGE} as builder
 
 ARG BASE_URL='https://us.download.nvidia.com/tesla'
@@ -29,6 +31,9 @@ USER builder
 WORKDIR /home/builder
 COPY --chown=1001:0 x509-configuration.ini private_key.priv* public_key.der* /home/builder/
 
+# This RUN block clones the NVIDIA packaging scripts, downloads and extracts the driver,
+# prepares the sources, generates signing keys if not provided, and builds the kmod RPM.
+# No changes are needed here as its behavior is controlled by the build arguments (ARGs).
 RUN export KVER=$(echo ${KERNEL_VERSION} | cut -d '-' -f 1) \
         KREL=$(echo ${KERNEL_VERSION} | cut -d '-' -f 2 | sed 's/\.el._.\..\+$//') \
         KDIST=$(echo ${KERNEL_VERSION} | cut -d '-' -f 2 | sed 's/^.*\(\.el._.\)\..\+$/\1/') \
@@ -70,6 +75,8 @@ RUN export KVER=$(echo ${KERNEL_VERSION} | cut -d '-' -f 1) \
         --define "driver_branch ${DRIVER_STREAM}" \
         -v -bb SPECS/kmod-nvidia.spec
 
+# STAGE 2: Build the final driver container image
+# The base image is updated via build arguments to use a RHEL10/CentOS10 compatible CUDA base.
 FROM nvcr.io/nvidia/cuda:${CUDA_VERSION}-base-${CUDA_DIST}
 
 ARG BASE_URL='https://us.download.nvidia.com/tesla'
@@ -105,7 +112,7 @@ USER root
 COPY --chmod=744 nvidia-driver /usr/local/bin
 COPY --chmod=744 common.sh /usr/local/bin
 
-# Copy the firmware files
+# Copy the firmware files from the builder stage
 COPY --from=builder --chmod=444 /home/builder/yum-packaging-precompiled-kmod/tmp/firmware/*.bin /opt/lib/firmware/nvidia/${DRIVER_VERSION}/
 
 # Kernel packages needed to build drivers / kmod
@@ -126,13 +133,15 @@ COPY --from=builder /lib/modules/${KERNEL_VERSION_NOARCH}.${BUILD_ARCH}/kernel/d
 # Copy the built NVIDIA driver RPM from the builder
 COPY --from=builder /home/builder/yum-packaging-precompiled-kmod/RPMS/${TARGET_ARCH}/*.rpm /rpms/
 
-# Install the Driver modules
+# Install the Driver modules (kmod)
 RUN dnf install -y /rpms/kmod-nvidia-*.rpm \
     && rm -rf /rpms
 
 # Copy the rhsm-register script to enable subscription-manager during build time
 COPY --chmod=744 ./rhsm-register /usr/local/bin/rhsm-register
 
+# This RUN block installs the user-space driver components.
+# It uses RHSM to access official Red Hat repositories for dependencies if needed.
 RUN --mount=type=secret,id=RHSM_ORG,target=/run/secrets/RHSM_ORG \
     --mount=type=secret,id=RHSM_ACTIVATIONKEY,target=/run/secrets/RHSM_ACTIVATIONKEY \
     export DRIVER_STREAM=$(echo ${DRIVER_VERSION} | cut -d '.' -f 1) \
